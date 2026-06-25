@@ -26,3 +26,8 @@ NOTICE:
   (Jung, C.G., 1921, Psychologische Typen).
   "MBTI", "Myers-Briggs Type Indicator", "Myers-Briggs" are registered trademarks
   of Myers & Briggs Foundation, Inc. This software does NOT use those trademarks.
+
+  mongoose (server/mongoose.h, server/mongoose.c)
+  Copyright (c) 2004-2026 Cesanta Software Limited
+  Licensed under MIT License
+  https://github.com/cesanta/mongoose
