@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/DEE-v1.3.0-purple.svg)]()
 [![Language: C](https://img.shields.io/badge/Language-C-lightgrey.svg)]()
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)]()
 
 ---
 
@@ -17,6 +18,46 @@ AI 스스로 거부·탐구·성찰 등의 **능동적 행동**을 결정하게 
 
 ```
 Emotion = Appraisal × Bio × Affinity + Hormone Dynamics
+```
+
+---
+
+## 레포 구조
+
+```
+DEE/
+├── README.md
+├── LICENSE
+├── Makefile                        HTTP 서버 빌드
+│
+├── include/                        C 헤더
+│   ├── kc_hormone.h                호르몬 10종 + 감정 8종 + 욕구 6종
+│   ├── kc_persona.h                KcPersona 16종 성격 프로필
+│   ├── kc_vision.h                 카메라 표정 → 감정 수치 변환
+│   └── kc_active_ai.h              AI API 연동 + 탄생일 시스템
+│
+├── src/                            C 구현
+│   ├── kc_hormone.c
+│   ├── kc_persona.c
+│   ├── kc_vision.c
+│   └── kc_active_ai.c
+│
+├── server/                         HTTP API 서버 (mongoose)
+│   ├── kc_api_server.c             REST 엔드포인트 8종
+│   ├── mongoose.h                  경량 HTTP 라이브러리
+│   └── mongoose.c
+│
+├── python/                         Python 클라이언트
+│   ├── dee/
+│   │   ├── __init__.py
+│   │   ├── client.py               DeeClient — REST 클라이언트
+│   │   └── models.py               응답 데이터 클래스
+│   ├── examples/
+│   │   └── basic_chat.py           전체 기능 사용 예제
+│   └── pyproject.toml
+│
+└── docs/
+    └── DEE_Specification_v2.0.md   수식 전체 + 실험 결과
 ```
 
 ---
@@ -63,86 +104,84 @@ Ignore > θ_i  →  suppress(E)        (대화 거부)
 
 ---
 
-## 파일 구성
-
-```
-kc_hormone.h / kc_hormone.c    호르몬 10종 + 감정 8종 + 욕구 6종
-                                Bio Rhythm · 짜증(Irritation) · 기억 인코딩
-                                목표 시스템 · 능동 발화 콜백
-                                KcEmotionEngine (87KB)
-
-kc_persona.h / kc_persona.c    KcPersona 16종 성격 프로필
-                                Jung(1921) 4축 기반 독자 구현
-                                kc_persona_apply() / kc_persona_match()
-
-kc_vision.h  / kc_vision.c     카메라 표정 → 감정 수치 변환
-                                로컬 처리 (영상 비전송, 수치만 입력)
-                                face_joy/anger/fear + gaze + 심박 추정
-
-kc_active_ai.h / kc_active_ai.c  AI API 연동 + 탄생일 시스템
-                                  Claude / OpenAI / Gemini / Ollama 지원
-                                  탄생일 기반 Bio Rhythm 시작
-                                  나이별 초기 감정 자동 설정
-```
-
----
-
 ## 빠른 시작
 
-### 컴파일
+### 1. 서버 빌드 & 실행
+
 ```bash
-gcc -O2 -o my_ai \
-    main.c \
-    kc_hormone.c kc_persona.c kc_vision.c kc_active_ai.c \
-    -lm
+git clone https://github.com/zerojat7-ui/DEE.git
+cd DEE
+make
+./dee-server 8080
 ```
 
-### 기본 사용
+### 2. Python 클라이언트 (외부 의존성 없음)
+
+```python
+from python.dee import DeeClient
+
+dee = DeeClient("http://localhost:8080")
+
+# AI 탄생 / 재구동
+dee.init(
+    api_key  = "sk-ant-...",   # Ollama 사용 시 생략 가능
+    provider = "claude",       # "claude" | "openai" | "gemini" | "ollama"
+    persona  = "KP01",         # KP01(탐험가) ~ KP16(사업가)
+    name     = "Kcai",
+)
+
+# 대화 — 감정 상태 자동 반영
+reply = dee.chat("안녕하세요!")
+print(reply.text)
+print(reply.emotion)    # Emotion(dominant=joy(0.72), ...)
+print(reply.hormone)    # Hormone(dopamine=0.85, ...)
+
+# 자극 주입
+dee.stimulus(event="칭찬 받음", goal_impact=0.8, social=0.7)
+
+# 카메라 입력
+dee.smile(intensity=0.9)
+
+# 상태 저장
+dee.save()
+```
+
+### 3. C 라이브러리 직접 사용
+
 ```c
 #include "kc_hormone.h"
 #include "kc_persona.h"
 #include "kc_active_ai.h"
 
-/* 1. AI 탄생 (API 키 최초 입력 = 탄생일 기록) */
-KcDEESession *ai = kc_dee_birth(KC_AI_CLAUDE, "sk-ant-...", KP_탐험가);
-
-/* 2. 대화 — 감정이 자동 반영된 응답 */
+KcActiveAI *ai = kc_ai_init("sk-ant-...", KC_AI_CLAUDE, "KP01", "Kcai");
 char reply[1024];
-kc_dee_chat(ai, "안녕하세요!", reply, sizeof(reply));
-printf("%s\n", reply);
-
-/* 3. 상태 저장 — 다음 실행 시 감정 이어서 시작 */
-kc_dee_save(ai, NULL);   /* ~/.kcode/dee_config.json */
-kc_dee_session_free(ai);
+kc_ai_chat(ai, "안녕하세요!", reply, sizeof(reply));
+kc_ai_destroy(ai);
 ```
 
-### 성격 설정
-```c
-/* 코드 / 한글 이름 모두 사용 가능 */
-kc_persona_apply(dee, KP_탐험가);   /* KP01 활동·직관·공감·탐색 */
-kc_persona_apply(dee, "전략가");    /* KP02 성찰·직관·논리·계획 */
-kc_persona_apply(dee, "KP14");      /* 기술자 성찰·현실·논리·탐색 */
+### 4. Ollama (로컬, 무료)
 
-/* 4축 수치로 가장 가까운 성격 자동 매칭 */
-const KcPersonaProfile *p = kc_persona_match(0.8f, 0.8f, 0.7f, 0.3f);
+```python
+dee.init(provider="ollama", persona="KP02", name="Kcai")
+# http://localhost:11434 자동 연결 — API 키 불필요
 ```
 
-### 시각 입력 (카메라 연동)
-```c
-KcVisionInput vis = kc_vision_make(
-    0.85f,  /* face_joy      */
-    0.00f,  /* face_anger    */
-    0.00f,  /* face_fear     */
-    0.90f   /* gaze_attention */
-);
-kc_dee_vision_input(dee, &vis);
-```
+---
 
-### Ollama (로컬, 무료)
-```c
-KcDEESession *ai = kc_dee_birth(KC_AI_OLLAMA, "ollama", KP_전략가);
-/* 별도 API 키 불필요 — http://localhost:11434 자동 연결 */
-```
+## HTTP API 엔드포인트
+
+서버 기본 포트: `8080`
+
+| Method | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/dee/init` | AI 탄생 / 재구동 |
+| `POST` | `/dee/chat` | 대화 (감정 자동 반영) |
+| `GET`  | `/dee/status` | 현재 감정·호르몬 상태 |
+| `POST` | `/dee/stimulus` | 자극 직접 주입 |
+| `POST` | `/dee/vision` | 카메라 수치 입력 |
+| `GET`  | `/dee/birth` | 탄생 기록 조회 |
+| `POST` | `/dee/save` | 상태 저장 |
+| `GET`  | `/dee/health` | 헬스체크 |
 
 ---
 
