@@ -169,11 +169,7 @@ static void handle_init(struct mg_connection *c,
     _json_str(body, "api_key",  api_key, sizeof(api_key));
     _json_str(body, "persona",  persona, sizeof(persona));
     _json_str(body, "name",     name,    sizeof(name));
-    {
-        char tmp[16]; 
-        if (_json_str(body, "provider", tmp, sizeof(tmp)))
-            provider = atoi(tmp);
-    }
+    provider = (int)_json_float(body, "provider", 0.0f);
 
     /* 기존 AI 해제 */
     if (g_ai) { kc_ai_destroy(g_ai); g_ai = NULL; }
@@ -247,7 +243,7 @@ static void handle_chat(struct mg_connection *c,
         else reply_esc[ri++] = reply[i];
     }
 
-    char resp[8192];
+    char resp[12288];
     snprintf(resp, sizeof(resp),
         "{"
         "\"ok\":true,"
@@ -382,7 +378,21 @@ static void handle_birth(struct mg_connection *c) {
 
     char age[64]; kc_ai_age_str(g_ai, age, sizeof(age));
 
-    char resp[1024];
+    /* first_words JSON 이스케이프 */
+    char fw_esc[1024] = {0};
+    {
+        const char *src = g_ai->birth.first_words;
+        int wi = 0;
+        for (int i = 0; src[i] && wi < (int)sizeof(fw_esc) - 2; i++) {
+            if      (src[i] == '"')  { fw_esc[wi++] = '\\'; fw_esc[wi++] = '"'; }
+            else if (src[i] == '\n') { fw_esc[wi++] = '\\'; fw_esc[wi++] = 'n'; }
+            else if (src[i] == '\r') { /* skip */ }
+            else if (src[i] == '\\') { fw_esc[wi++] = '\\'; fw_esc[wi++] = '\\'; }
+            else fw_esc[wi++] = src[i];
+        }
+    }
+
+    char resp[2048];
     snprintf(resp, sizeof(resp),
         "{"
         "\"ok\":true,"
@@ -400,7 +410,7 @@ static void handle_birth(struct mg_connection *c) {
         age,
         g_ai->birth.session_count,
         g_ai->birth.cumulative_affinity,
-        g_ai->birth.first_words
+        fw_esc
     );
     send_ok(c, resp);
 }
