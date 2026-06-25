@@ -18,9 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>  // sleep()
-#include "../kc_hormone.h"
-#include "../kc_persona.h"
-#include "../kc_active_ai.h"
+#include "kc_hormone.h"
+#include "kc_persona.h"
+#include "kc_active_ai.h"
 
 /* ── 캐릭터 구조체 ─────────────────────────────────────── */
 typedef struct {
