@@ -2,10 +2,12 @@
 
 CC = gcc
 CFLAGS = -O2 -Wall -std=c99
-LDFLAGS = -lm
-INC = -I..
+# include 폴더를 지정 (-I)
+INC = -I../include
 
-SRCS = ../kc_hormone.c ../kc_persona.c ../kc_vision.c ../kc_active_ai.c
+# 소스 파일은 src 폴더에서 가져옴
+SRCS = ../src/kc_hormone.c ../src/kc_persona.c ../src/kc_vision.c ../src/kc_active_ai.c
+LDFLAGS = -lm
 
 all: character_simulation
 
