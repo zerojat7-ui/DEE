@@ -13,6 +13,10 @@
 #include <sys/stat.h>
 #include <errno.h>
 
+static inline float clampf(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
 #ifdef _WIN32
 #include <direct.h>
 #define KC_MKDIR(p) _mkdir(p)
@@ -221,6 +225,51 @@ const char *kc_ai_provider_name(KcAIProvider p) {
     }
 }
 
+/* ── 나이별 감정 보정 ───────────────────────────────────── */
+/*
+ * 탄생 후 경과 시간에 따라 호기심·기쁨·신뢰를 선형 보간.
+ * kc_persona_apply() 이후 호출: curiosity는 persona 기저값과 50:50 블렌딩.
+ *
+ * 나이      호기심   기쁨   신뢰
+ * 0시간     0.95    0.60   0.50   — 모든 것이 새롭고 놀라움
+ * 7일       0.80    0.50   0.60   — 점차 안정됨
+ * 30일      0.60    0.40   0.70   — 경험 기반 판단
+ * 90일+     0.50    0.50   0.75   — 신뢰 중심으로 성숙
+ */
+static void _apply_age_emotion(KcActiveAI *ai) {
+    double age_days = kc_ai_age_seconds(ai) / 86400.0;
+    KcEmotionEngine *dee = ai->dee;
+
+    float curiosity, joy, trust;
+
+    if (age_days < 0.5) {
+        curiosity = 0.95f; joy = 0.60f; trust = 0.50f;
+    } else if (age_days < 7.0) {
+        float t = (float)(age_days / 7.0);
+        curiosity = 0.95f + t * (0.80f - 0.95f);
+        joy       = 0.60f + t * (0.50f - 0.60f);
+        trust     = 0.50f + t * (0.60f - 0.50f);
+    } else if (age_days < 30.0) {
+        float t = (float)((age_days - 7.0) / 23.0);
+        curiosity = 0.80f + t * (0.60f - 0.80f);
+        joy       = 0.50f + t * (0.40f - 0.50f);
+        trust     = 0.60f + t * (0.70f - 0.60f);
+    } else if (age_days < 90.0) {
+        float t = (float)((age_days - 30.0) / 60.0);
+        curiosity = 0.60f + t * (0.50f - 0.60f);
+        joy       = 0.40f + t * (0.50f - 0.40f);
+        trust     = 0.70f + t * (0.75f - 0.70f);
+    } else {
+        curiosity = 0.50f; joy = 0.50f; trust = 0.75f;
+    }
+
+    /* curiosity: persona 기저값(kc_persona_apply 적용됨)과 50:50 블렌딩 */
+    dee->emo.e[KC_EMO_CURIOSITY] =
+        (dee->emo.e[KC_EMO_CURIOSITY] + curiosity) * 0.5f;
+    dee->emo.e[KC_EMO_JOY]   = joy;
+    dee->emo.e[KC_EMO_TRUST] = trust;
+}
+
 /* ── 기본 모델명 ────────────────────────────────────────── */
 static const char *_default_model(KcAIProvider p) {
     switch(p){
@@ -246,7 +295,7 @@ KcActiveAI *kc_ai_init(const char *api_key,
     strncpy(ai->cfg.model, _default_model(provider), 63);
     ai->cfg.timeout_ms  = 30000;
     ai->cfg.max_tokens  = 1024;
-    ai->cfg.temperature = 0.7f;
+    ai->cfg.temperature = 0.7f; /* fallback — kc_persona_apply() 후 ai_temp_base로 갱신됨 */
 
     /* 탄생 기록 존재 확인 */
     char bpath[512]; _expand_path(KC_AI_BIRTH_PATH, bpath, 512);
@@ -260,6 +309,7 @@ KcActiveAI *kc_ai_init(const char *api_key,
 
     const char *use_persona = (persona_code && strlen(persona_code)>=4) ? persona_code : "KP01";
     kc_persona_apply(ai->dee, use_persona);
+    _apply_age_emotion(ai);  /* 나이별 감정 보정 (탄생: age=0 → 호기심 0.95) */
 
     if (is_newborn) {
         /* ══ 첫 탄생 ══ */
@@ -308,6 +358,9 @@ KcActiveAI *kc_ai_init(const char *api_key,
         if (kc_ai_load_state(ai) == 0) {
             printf("[DEE] 이전 상태 복원 완료\n");
         }
+
+        /* 나이별 감정 보정 — 복원 후 적용 */
+        _apply_age_emotion(ai);
 
         /* Bio Rhythm: 탄생부터 지금까지 연속 진행 */
         kc_ai_sync_bio(ai);
@@ -383,6 +436,14 @@ int kc_ai_chat(KcActiveAI *ai,
     /* 매 대화마다 DEE 틱 + Bio 동기화 */
     kc_ai_sync_bio(ai);
     kc_dee_tick(ai->dee, 1.0f);
+
+    /* ai_temp_base → cfg.temperature 반영
+     * 감정 강도로 편차 추가: 강한 감정일수록 temperature 소폭 상승 */
+    if (ai->dee->ai_temp_base > 0.0f) {
+        float emo_boost = ai->dee->emo.intensity * 0.15f;
+        ai->cfg.temperature = clampf(
+            ai->dee->ai_temp_base + emo_boost, 0.1f, 1.5f);
+    }
 
     /* 사용자 메시지 → DEE 자극 */
     float impact   = 0.2f;

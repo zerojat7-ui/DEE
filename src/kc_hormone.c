@@ -120,6 +120,17 @@ void kc_dee_reset(KcEmotionEngine *dee) {
         dee->drive.satisfaction[i]= 0.5f;
         dee->drive.decay_rate[i]  = KC_DRIVE_DECAY_DEFAULT[i];
     }
+
+    /* KcPersona 런타임 파라미터 기본값 */
+    dee->persona_energy_recharge = 0.5f;  /* 중간 */
+    dee->persona_social_drain    = 0.3f;  /* 중간 */
+    dee->persona_irritation_k    = 0.06f; /* 기본 짜증 계수 */
+
+    /* 감정 기반 temperature 기저값 */
+    dee->ai_temp_base = 0.7f;
+
+    /* 능동 발화 쿨다운 초기화 */
+    dee->last_fire_tick = 0;
 }
 
 /* ── 자극 입력 ────────────────────────────────────────────── */
@@ -230,22 +241,26 @@ void kc_dee_tick(KcEmotionEngine *dee, float dt) {
     dee->emo.e[KC_EMO_TRUST]  = clampf(dee->emo.e[KC_EMO_TRUST]
                                 + dee->emo.affinity * 0.01f * dt, 0.0f, 1.0f);
 
-    /* 6. 짜증(Irritation) */
+    /* 6. 짜증(Irritation) — persona_irritation_k 반영 */
     float irr_input = dee->emo.fatigue * 0.3f
                     + dee->hor.level[KC_HOR_CORTISOL] * 0.2f
                     - dee->hor.level[KC_HOR_SEROTONIN] * 0.2f;
-    dee->emo.irritation += (sigmoidf(irr_input - 0.5f) - dee->emo.irritation) * dt * 0.1f;
+    dee->emo.irritation += (sigmoidf(irr_input - 0.5f) - dee->emo.irritation)
+                         * dt * dee->persona_irritation_k;
     dee->emo.e[KC_EMO_ANGER] += dee->emo.irritation * 0.05f * dt;
 
-    /* 피로도 증가/감소 */
-    dee->emo.fatigue += dt * 0.00005f;
+    /* 피로도 — persona_social_drain: 사회적 소모 반영 */
+    dee->emo.fatigue += dt * 0.00005f
+                      + dee->hor.level[KC_HOR_CORTISOL] * dt * dee->persona_social_drain * 0.0001f;
+    /* 멜라토닌 → 피로 회복 + persona_energy_recharge */
     if (dee->hor.level[KC_HOR_MELATONIN] > 0.5f)
-        dee->emo.fatigue -= dt * 0.001f;
+        dee->emo.fatigue -= dt * (0.001f + dee->persona_energy_recharge * 0.002f);
     dee->emo.fatigue = clampf(dee->emo.fatigue, 0.0f, 1.0f);
 
-    /* 7. 자기조절 */
+    /* 7. 자기조절 — dt 스케일 적용: regulation^dt */
+    float reg_dt = powf(dee->emo.regulation, dt);
     for (int j = 0; j < KC_EMO_COUNT; j++)
-        dee->emo.e[j] *= dee->emo.regulation;
+        dee->emo.e[j] *= reg_dt;
 
     /* 8. clamp */
     for (int j = 0; j < KC_EMO_COUNT; j++)
@@ -281,8 +296,7 @@ void kc_dee_tick(KcEmotionEngine *dee, float dt) {
 /* ── 능동 발화 체크 ───────────────────────────────────────── */
 int kc_dee_check_active(KcEmotionEngine *dee) {
     if (!dee || !dee->on_active) return 0;
-    static uint32_t last_fire = 0;
-    if (dee->tick - last_fire < 300) return 0; /* 쿨다운 */
+    if (dee->tick - dee->last_fire_tick < 300) return 0; /* 쿨다운 */
 
     char reason[64] = {0};
     int  fired = 0;
@@ -315,7 +329,7 @@ int kc_dee_check_active(KcEmotionEngine *dee) {
         snprintf(full, sizeof(full),
                  "[능동발화:%s]\n%s", reason, prompt);
         dee->on_active(full, dee->userdata);
-        last_fire = dee->tick;
+        dee->last_fire_tick = dee->tick;
     }
     return fired;
 }

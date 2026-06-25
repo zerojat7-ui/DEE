@@ -99,27 +99,42 @@ void kc_persona_apply(KcEmotionEngine *dee, const char *q) {
         if (dee->hor.level[i]>dee->hor.h_max[i]) dee->hor.level[i]=dee->hor.h_max[i];
     }
 
-    /* 욕구 임계값 조정 */
+    /* 욕구 임계값 — 6종 전부 설정 */
+    dee->drive.threshold[KC_DRIVE_SURVIVE]    = 0.85f;
     dee->drive.threshold[KC_DRIVE_CONNECT]    = p->axis.kpe < 0.5f ? 0.85f : 0.60f;
+    dee->drive.threshold[KC_DRIVE_GROW]       = p->curiosity_base > 0.6f ? 0.55f : 0.75f;
+    dee->drive.threshold[KC_DRIVE_EXPRESS]    = p->axis.kpe > 0.5f ? 0.65f : 0.80f;
     dee->drive.threshold[KC_DRIVE_UNDERSTAND] = p->curiosity_base > 0.5f ? 0.60f : 0.80f;
+    dee->drive.threshold[KC_DRIVE_CREATE]     = p->axis.kpn > 0.5f ? 0.60f : 0.78f;
 
     /* 감정 초기값 */
     dee->emo.e[KC_EMO_CURIOSITY] = p->curiosity_base;
     dee->emo.regulation = p->w_logic > 0.6f ? 0.85f : 0.70f;
 
-    /* Bio Rhythm: 활동형(KPE↑) = 활발한 리듬, 성찰형(KPE↓) = 안정적 리듬 */
+    /* Bio Rhythm */
     dee->bio.amplitude = 0.10f + p->axis.kpe * 0.20f;
     dee->bio.omega     = p->axis.kpe > 0.5f
-                       ? (2.0f*3.14159f/43200.0f)   /* 12h 주기 — 활동형 */
-                       : (2.0f*3.14159f/86400.0f);  /* 24h 주기 — 성찰형 */
+                       ? (2.0f*3.14159f/43200.0f)
+                       : (2.0f*3.14159f/86400.0f);
+
+    /* KcEmotionEngine 런타임 파라미터 연결 */
+    dee->persona_energy_recharge = p->energy_recharge_rate;
+    dee->persona_social_drain    = p->social_drain_rate;
+    dee->persona_irritation_k    = p->irritation_k;
+
+    /* ai_temp_base: 공감형↑ = 온도 높음, 논리형↑ = 낮음 (0.5~0.9) */
+    dee->ai_temp_base = 0.5f + p->axis.kpf * 0.4f;
 
     printf("[KcPersona] %s (%s) 적용 | "
            "KPE=%.1f KPN=%.1f KPF=%.1f KPJ=%.1f | "
-           "호기심=%.2f 논리=%.2f\n",
+           "호기심=%.2f 논리=%.2f | "
+           "재충전=%.2f 소모=%.2f 짜증k=%.3f temp=%.2f\n",
            p->name, p->code,
            p->axis.kpe, p->axis.kpn,
            p->axis.kpf, p->axis.kpj,
-           p->curiosity_base, p->w_logic);
+           p->curiosity_base, p->w_logic,
+           p->energy_recharge_rate, p->social_drain_rate,
+           p->irritation_k, dee->ai_temp_base);
 }
 
 /* ── 전체 목록 출력 ───────────────────────────────────── */
